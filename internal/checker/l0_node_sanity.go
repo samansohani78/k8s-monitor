@@ -19,7 +19,10 @@ package checker
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -95,7 +98,7 @@ func (c *NodeSanityChecker) Check(ctx context.Context, target *k8swatchv1.Target
 
 	// Check clock skew (optional, requires NTP server)
 	if target.Spec.Layers.L0NodeSanity.ClockSkew != nil && target.Spec.Layers.L0NodeSanity.ClockSkew.Enabled {
-		if err := c.checkClockSkew(); err != nil {
+		if err := c.checkClockSkew(target.Spec.Layers.L0NodeSanity.ClockSkew); err != nil {
 			return LayerResultError(err, string(k8swatchv1.FailureCodeClockSkew), time.Since(startTime).Milliseconds()), nil
 		}
 	}
@@ -278,9 +281,7 @@ func (c *NodeSanityChecker) countPortsFromFile(path string, count *int64) error 
 }
 
 // checkClockSkew checks system clock skew
-func (c *NodeSanityChecker) checkClockSkew() error {
-	// Simple check: compare system time with expected time
-	// In production, this would compare with an NTP server
+func (c *NodeSanityChecker) checkClockSkew(clockCfg *k8swatchv1.ClockSkewConfig) error {
 	now := time.Now()
 
 	// Check if time is reasonable (not in the past or far future)
@@ -289,6 +290,63 @@ func (c *NodeSanityChecker) checkClockSkew() error {
 		return fmt.Errorf("system clock appears incorrect: year=%d", now.Year())
 	}
 
-	// TODO: Implement actual NTP comparison when NTP server is configured
+	// If no NTP server is configured, keep basic sanity validation only.
+	if clockCfg == nil || strings.TrimSpace(clockCfg.NTPServer) == "" {
+		return nil
+	}
+
+	threshold := c.config.ClockSkewThreshold
+	if clockCfg.Threshold != "" {
+		if d, err := time.ParseDuration(clockCfg.Threshold); err == nil && d > 0 {
+			threshold = d
+		}
+	}
+
+	serverTime, err := queryNTPTime(clockCfg.NTPServer, 3*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to query NTP server %q: %w", clockCfg.NTPServer, err)
+	}
+
+	skew := now.Sub(serverTime)
+	if math.Abs(skew.Seconds()) > threshold.Seconds() {
+		return fmt.Errorf("clock skew too high: %s (threshold: %s)", skew.Round(time.Millisecond), threshold)
+	}
+
 	return nil
+}
+
+func queryNTPTime(server string, timeout time.Duration) (time.Time, error) {
+	addr := server
+	if !strings.Contains(server, ":") {
+		addr = net.JoinHostPort(server, "123")
+	}
+
+	conn, err := net.DialTimeout("udp", addr, timeout)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+
+	req := make([]byte, 48)
+	req[0] = 0x1B // LI=0, VN=3, Mode=3 (client)
+	if _, err := conn.Write(req); err != nil {
+		return time.Time{}, err
+	}
+
+	resp := make([]byte, 48)
+	if _, err := conn.Read(resp); err != nil {
+		return time.Time{}, err
+	}
+
+	seconds := binary.BigEndian.Uint32(resp[40:44])
+	fraction := binary.BigEndian.Uint32(resp[44:48])
+
+	// NTP epoch starts at 1900-01-01.
+	const ntpToUnix = 2208988800
+	unixSeconds := int64(seconds) - ntpToUnix
+	nanos := (int64(fraction) * 1e9) >> 32 // fixed-point fraction to nanoseconds
+
+	return time.Unix(unixSeconds, nanos).UTC(), nil
 }

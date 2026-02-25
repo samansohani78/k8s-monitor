@@ -19,30 +19,25 @@ This directory contains example Target and AlertRule configurations for K8sWatch
 | Example | File | Description |
 |---------|------|-------------|
 | PostgreSQL | `target-postgresql.yaml` | PostgreSQL health check |
-| MySQL | `target-mysql.yaml` | MySQL health check |
 | Redis | `target-redis.yaml` | Redis health check |
-| MongoDB | `target-mongodb.yaml` | MongoDB health check |
 
 ### Search & Storage
 
 | Example | File | Description |
 |---------|------|-------------|
 | Elasticsearch | `target-elasticsearch.yaml` | ES cluster health |
-| MinIO | `target-minio.yaml` | S3-compatible storage |
 
 ### Messaging
 
 | Example | File | Description |
 |---------|------|-------------|
 | Kafka | `target-kafka.yaml` | Kafka broker health |
-| RabbitMQ | `target-rabbitmq.yaml` | RabbitMQ health |
 
 ### Identity & Proxy
 
 | Example | File | Description |
 |---------|------|-------------|
 | Keycloak | `target-keycloak.yaml` | OIDC provider health |
-| Nginx | `target-nginx.yaml` | Nginx health check |
 
 ### Synthetic Targets
 

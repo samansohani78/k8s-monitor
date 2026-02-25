@@ -278,7 +278,7 @@ func TestNodeSanityCheckerHighFDUsage(t *testing.T) {
 func TestCheckClockSkew(t *testing.T) {
 	checker := NewNodeSanityChecker(nil)
 
-	err := checker.checkClockSkew()
+	err := checker.checkClockSkew(nil)
 
 	// This should pass on systems with correct time
 	if err != nil {

@@ -101,7 +101,7 @@ deliveryLatency := time.Since(result.CheckCompletedAt)
 ### Alert
 
 ```yaml
-# TODO: Add to k8swatch-system-alerts.yaml after metric implementation
+# Planned: add to deploy/monitoring/k8swatch-system-alerts.yaml once metric is emitted
 - alert: K8sWatchResultDeliveryLatencyHigh
   expr: histogram_quantile(0.99, sum(rate(k8swatch_aggregator_result_delivery_seconds_bucket[5m])) by (le)) > 10
   for: 5m
@@ -154,7 +154,7 @@ latency := time.Since(alertState.FirstFailureTime)
 ### Alert
 
 ```yaml
-# TODO: Add to k8swatch-system-alerts.yaml after metric implementation
+# Planned: add to deploy/monitoring/k8swatch-system-alerts.yaml once metric is emitted
 - alert: K8sWatchAlertFiringLatencyHigh
   expr: histogram_quantile(0.99, sum(rate(k8swatch_alertmanager_alert_firing_latency_seconds_bucket[5m])) by (le)) > 60
   for: 5m
@@ -374,8 +374,8 @@ Panels:
 | SLO | SLI Implemented | Alert Created | Dashboard Panel | Status |
 |-----|-----------------|---------------|-----------------|--------|
 | Check Execution Latency | ✅ | ✅ | ✅ | Complete |
-| Result Delivery Latency | ❌ | ❌ | ❌ | TODO |
-| Alert Firing Latency | ❌ | ❌ | ❌ | TODO |
+| Result Delivery Latency | ❌ | ❌ | ❌ | Planned |
+| Alert Firing Latency | ❌ | ❌ | ❌ | Planned |
 | System Availability | ✅ | ✅ | ✅ | Complete |
 | Check Coverage | ⚠️ | ⚠️ | ⚠️ | Partial |
 | Check Success Rate | ✅ | ✅ | ✅ | Complete |
@@ -399,10 +399,10 @@ Panels:
 # SLO 1: Check Execution Latency (P99)
 histogram_quantile(0.99, sum(rate(k8swatch_agent_check_duration_seconds_bucket[5m])) by (le))
 
-# SLO 2: Result Delivery Latency (P99) - TODO
+# SLO 2: Result Delivery Latency (P99) - Planned
 histogram_quantile(0.99, sum(rate(k8swatch_aggregator_result_delivery_seconds_bucket[5m])) by (le))
 
-# SLO 3: Alert Firing Latency (P99) - TODO
+# SLO 3: Alert Firing Latency (P99) - Planned
 histogram_quantile(0.99, sum(rate(k8swatch_alertmanager_alert_firing_latency_seconds_bucket[5m])) by (le))
 
 # SLO 4: System Availability

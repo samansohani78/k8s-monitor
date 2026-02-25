@@ -19,11 +19,15 @@ package checker
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -206,8 +210,31 @@ func (l *TLSLayer) getTLSConfig(target *k8swatchv1.Target) (*tls.Config, error) 
 			config.InsecureSkipVerify = true
 		}
 
-		// TODO: Load CA bundle from CABundleRef
-		// TODO: Load client cert from ClientCertRef
+		if target.Spec.Layers.L3TLS.CABundleRef != nil {
+			caBundle, err := loadSecretKeyRef(context.Background(), target.Namespace, target.Spec.Layers.L3TLS.CABundleRef)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load CA bundle from secret: %w", err)
+			}
+
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM([]byte(caBundle)) {
+				return nil, fmt.Errorf("failed to parse CA bundle PEM data")
+			}
+			config.RootCAs = pool
+		}
+
+		if target.Spec.Layers.L3TLS.ClientCertRef != nil {
+			certPEM, keyPEM, err := loadTLSCertRef(context.Background(), target.Namespace, target.Spec.Layers.L3TLS.ClientCertRef)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load client certificate from secret: %w", err)
+			}
+
+			cert, err := tls.X509KeyPair(certPEM, keyPEM)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse client certificate key pair: %w", err)
+			}
+			config.Certificates = []tls.Certificate{cert}
+		}
 	}
 
 	return config, nil
@@ -549,8 +576,28 @@ func (l *HTTPAuthLayer) buildAuthHTTPRequest(target *k8swatchv1.Target) (*http.R
 		req.Header.Set("Authorization", "Bearer "+authConfig.Token)
 	}
 
-	// TODO: Load credentials from CredentialsRef
-	// TODO: Support Basic auth, mTLS, etc.
+	if authConfig.CredentialsRef != nil {
+		creds, err := loadCredentialsRef(context.Background(), target.Namespace, authConfig.CredentialsRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load credentials from secret: %w", err)
+		}
+
+		authType := strings.ToLower(authConfig.AuthType)
+		switch authType {
+		case "basic":
+			req.SetBasicAuth(creds.username, creds.password)
+		case "apikey":
+			if creds.token != "" {
+				req.Header.Set("X-API-Key", creds.token)
+			}
+		case "", "bearer", "mtls":
+			if creds.token != "" {
+				req.Header.Set("Authorization", "Bearer "+creds.token)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported auth type: %s", authConfig.AuthType)
+		}
+	}
 
 	return req, nil
 }
@@ -632,8 +679,42 @@ func (l *HTTPSemanticLayer) Check(ctx context.Context, target *k8swatchv1.Target
 		}
 	}
 
-	// TODO: Support JSONPath evaluation
-	// TODO: Support regex matching
+	if semConfig.JSONPath != "" {
+		value, err := evaluateSimpleJSONPath(body, semConfig.JSONPath)
+		if err != nil {
+			return LayerResultFailure(
+				string(k8swatchv1.FailureCodeSemanticUnexpected),
+				fmt.Sprintf("JSONPath evaluation failed: %v", err),
+				duration,
+			), nil
+		}
+
+		if semConfig.ExpectedValue != "" && value != semConfig.ExpectedValue {
+			return LayerResultFailure(
+				string(k8swatchv1.FailureCodeSemanticUnexpected),
+				fmt.Sprintf("JSONPath value mismatch: got %q expected %q", value, semConfig.ExpectedValue),
+				duration,
+			), nil
+		}
+	}
+
+	if semConfig.Regex != "" {
+		re, err := regexp.Compile(semConfig.Regex)
+		if err != nil {
+			return LayerResultFailure(
+				string(k8swatchv1.FailureCodeConfigError),
+				fmt.Sprintf("invalid regex: %v", err),
+				duration,
+			), nil
+		}
+		if !re.Match(body) {
+			return LayerResultFailure(
+				string(k8swatchv1.FailureCodeSemanticUnexpected),
+				"regex did not match response body",
+				duration,
+			), nil
+		}
+	}
 
 	return LayerResultSuccess(duration), nil
 }
@@ -676,4 +757,78 @@ func getPath(target *k8swatchv1.Target, defaultPath string) string {
 		return *target.Spec.Endpoint.Path
 	}
 	return defaultPath
+}
+
+func evaluateSimpleJSONPath(data []byte, path string) (string, error) {
+	var parsed interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return "", fmt.Errorf("invalid JSON response: %w", err)
+	}
+
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" || trimmed == "$" {
+		return jsonValueToString(parsed), nil
+	}
+	trimmed = strings.TrimPrefix(trimmed, "$.")
+
+	current := parsed
+	segments := strings.Split(trimmed, ".")
+	for _, segment := range segments {
+		key := segment
+		index := -1
+
+		if left := strings.Index(segment, "["); left != -1 && strings.HasSuffix(segment, "]") {
+			key = segment[:left]
+			idxStr := segment[left+1 : len(segment)-1]
+			i, err := strconv.Atoi(idxStr)
+			if err != nil {
+				return "", fmt.Errorf("invalid JSONPath index %q", idxStr)
+			}
+			index = i
+		}
+
+		if key != "" {
+			obj, ok := current.(map[string]interface{})
+			if !ok {
+				return "", fmt.Errorf("path segment %q is not an object", key)
+			}
+			val, ok := obj[key]
+			if !ok {
+				return "", fmt.Errorf("path segment %q not found", key)
+			}
+			current = val
+		}
+
+		if index >= 0 {
+			arr, ok := current.([]interface{})
+			if !ok {
+				return "", fmt.Errorf("path segment %q is not an array", segment)
+			}
+			if index >= len(arr) {
+				return "", fmt.Errorf("array index %d out of range", index)
+			}
+			current = arr[index]
+		}
+	}
+
+	return jsonValueToString(current), nil
+}
+
+func jsonValueToString(v interface{}) string {
+	switch val := v.(type) {
+	case string:
+		return val
+	case float64:
+		return strconv.FormatFloat(val, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(val)
+	case nil:
+		return ""
+	default:
+		b, err := json.Marshal(val)
+		if err != nil {
+			return fmt.Sprintf("%v", val)
+		}
+		return string(b)
+	}
 }

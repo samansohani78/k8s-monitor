@@ -219,10 +219,20 @@ func (l *RedisAuthLayer) Check(ctx context.Context, target *k8swatchv1.Target) (
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 
 	// Get password from config
-	// TODO: Load from Secret
 	password := ""
 	if target.Spec.Layers.L5Auth != nil && target.Spec.Layers.L5Auth.Token != "" {
 		password = target.Spec.Layers.L5Auth.Token
+	}
+	if password == "" && target.Spec.Layers.L5Auth != nil && target.Spec.Layers.L5Auth.CredentialsRef != nil {
+		creds, credErr := loadCredentialsRef(context.Background(), target.Namespace, target.Spec.Layers.L5Auth.CredentialsRef)
+		if credErr != nil {
+			return LayerResultError(credErr, string(k8swatchv1.FailureCodeConfigError), time.Since(startTime).Milliseconds()), nil
+		}
+		if creds.token != "" {
+			password = creds.token
+		} else if creds.password != "" {
+			password = creds.password
+		}
 	}
 
 	if password != "" {

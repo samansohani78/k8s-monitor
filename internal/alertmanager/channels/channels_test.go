@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,6 +32,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func newLocalTestServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping test: cannot bind local test server: %v", err)
+	}
+	server := &httptest.Server{
+		Listener: listener,
+		Config:   &http.Server{Handler: handler},
+	}
+	server.Start()
+	return server
+}
 
 // Helper function to create test alert
 func createTestAlert() *alertmanager.Alert {
@@ -102,7 +118,7 @@ func TestPagerDutySendNoRoutingKey(t *testing.T) {
 }
 
 func TestPagerDutySendSuccess(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		w.WriteHeader(http.StatusOK)
@@ -128,7 +144,7 @@ func TestPagerDutySendSuccess(t *testing.T) {
 }
 
 func TestPagerDutySendServerFailure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -148,7 +164,7 @@ func TestPagerDutySendServerFailure(t *testing.T) {
 }
 
 func TestPagerDutySendContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -184,7 +200,7 @@ func TestPagerDutySeverityMapping(t *testing.T) {
 		t.Run(string(tt.alertSeverity), func(t *testing.T) {
 			var receivedPayload map[string]interface{}
 
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				decoder := json.NewDecoder(r.Body)
 				err := decoder.Decode(&receivedPayload)
 				assert.NoError(t, err)
@@ -216,7 +232,7 @@ func TestPagerDutySeverityMapping(t *testing.T) {
 func TestPagerDutySendRecovery(t *testing.T) {
 	var receivedPayload map[string]interface{}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&receivedPayload)
 		assert.NoError(t, err)
@@ -244,7 +260,7 @@ func TestPagerDutySendRecovery(t *testing.T) {
 func TestPagerDutySendTrigger(t *testing.T) {
 	var receivedPayload map[string]interface{}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&receivedPayload)
 		assert.NoError(t, err)
@@ -271,7 +287,7 @@ func TestPagerDutySendTrigger(t *testing.T) {
 func TestPagerDutyPayloadStructure(t *testing.T) {
 	var receivedPayload map[string]interface{}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&receivedPayload)
 		assert.NoError(t, err)
@@ -352,7 +368,7 @@ func TestWebhookSendNoURL(t *testing.T) {
 }
 
 func TestWebhookSendSuccess(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		w.WriteHeader(http.StatusOK)
@@ -374,7 +390,7 @@ func TestWebhookSendSuccess(t *testing.T) {
 func TestWebhookSendWithCustomHeaders(t *testing.T) {
 	var receivedHeaders http.Header
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedHeaders = r.Header.Clone()
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -400,7 +416,7 @@ func TestWebhookSendWithCustomHeaders(t *testing.T) {
 }
 
 func TestWebhookSendServerFailure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -419,7 +435,7 @@ func TestWebhookSendServerFailure(t *testing.T) {
 }
 
 func TestWebhookSendContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -441,7 +457,7 @@ func TestWebhookSendContextCancellation(t *testing.T) {
 }
 
 func TestWebhookSendTimeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -463,7 +479,7 @@ func TestWebhookSendTimeout(t *testing.T) {
 func TestWebhookPayloadStructure(t *testing.T) {
 	var receivedPayload map[string]interface{}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&receivedPayload)
 		assert.NoError(t, err)
@@ -493,7 +509,7 @@ func TestWebhookPayloadStructure(t *testing.T) {
 func TestWebhookSendResolved(t *testing.T) {
 	var receivedPayload map[string]interface{}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&receivedPayload)
 		assert.NoError(t, err)
@@ -676,7 +692,7 @@ func TestSlackSendNoWebhookURL(t *testing.T) {
 }
 
 func TestSlackSendSuccess(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		w.WriteHeader(http.StatusOK)
@@ -699,7 +715,7 @@ func TestSlackSendSuccess(t *testing.T) {
 }
 
 func TestSlackSendServerFailure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -718,7 +734,7 @@ func TestSlackSendServerFailure(t *testing.T) {
 }
 
 func TestSlackSendContextCancelled(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -846,7 +862,7 @@ func TestSlackGetSeverityEmoji(t *testing.T) {
 }
 
 func TestSlackSendWithAllSeverities(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -875,7 +891,7 @@ func TestSlackSendWithAllSeverities(t *testing.T) {
 }
 
 func TestSlackSendResolved(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -1053,7 +1069,7 @@ func TestEmailSendWithMultipleRecipients(t *testing.T) {
 func TestPagerDutyResolve(t *testing.T) {
 	var receivedPayload map[string]interface{}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&receivedPayload)
 		assert.NoError(t, err)
@@ -1173,7 +1189,7 @@ func TestPagerDutyGetSummary(t *testing.T) {
 }
 
 func TestPagerDutySendWithContextCancelled(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -1196,7 +1212,7 @@ func TestPagerDutySendWithContextCancelled(t *testing.T) {
 }
 
 func TestPagerDutyResolveWithContextCancelled(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -1255,7 +1271,7 @@ func TestWebhookClose(t *testing.T) {
 }
 
 func TestWebhookSendWithContextCancelled(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -1277,7 +1293,7 @@ func TestWebhookSendWithContextCancelled(t *testing.T) {
 }
 
 func TestWebhookSendWithTimeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -1298,7 +1314,7 @@ func TestWebhookSendWithTimeout(t *testing.T) {
 }
 
 func TestWebhookSendWithEmptyHeaders(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -1318,7 +1334,7 @@ func TestWebhookSendWithEmptyHeaders(t *testing.T) {
 }
 
 func TestWebhookSendHTTPError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error": "bad request"}`))
 	}))

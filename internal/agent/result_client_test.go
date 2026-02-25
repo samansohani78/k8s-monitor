@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	k8swatchv1 "github.com/k8swatch/k8s-monitor/api/v1"
+	pb "github.com/k8swatch/k8s-monitor/internal/pb"
 )
 
 func TestResultClientConfigDefaults(t *testing.T) {
@@ -90,6 +92,7 @@ func TestResultClientBuildSubmitRequest(t *testing.T) {
 		nodeName:     "test-node",
 		nodeZone:     "test-zone",
 		agentVersion: "v1.0",
+		networkMode:  pb.NetworkMode_NETWORK_MODE_POD,
 	}
 
 	result := &k8swatchv1.CheckResult{
@@ -127,6 +130,7 @@ func TestResultClientBuildSubmitRequest(t *testing.T) {
 	assert.Equal(t, "test-node", req.Agent.NodeName)
 	assert.Equal(t, "test-zone", req.Agent.NodeZone)
 	assert.Equal(t, "v1.0", req.Agent.AgentVersion)
+	assert.Equal(t, pb.NetworkMode_NETWORK_MODE_POD, req.Agent.NetworkMode)
 	assert.Equal(t, "test-target", req.Target.Name)
 	assert.Equal(t, "default", req.Target.Namespace)
 	assert.Equal(t, "http", req.Target.Type)
@@ -145,6 +149,7 @@ func TestResultClientBuildSubmitRequestWithFailure(t *testing.T) {
 		nodeName:     "test-node",
 		nodeZone:     "test-zone",
 		agentVersion: "v1.0",
+		networkMode:  pb.NetworkMode_NETWORK_MODE_POD,
 	}
 
 	result := &k8swatchv1.CheckResult{
@@ -182,6 +187,46 @@ func TestResultClientBuildSubmitRequestWithFailure(t *testing.T) {
 	assert.Equal(t, "dns_timeout", req.Check.FailureCode)
 	assert.Equal(t, "DNS query timed out", req.Check.FailureMessage)
 	assert.Equal(t, "timeout", req.Metadata.Error)
+}
+
+func TestResultClientBuildSubmitRequestHostNetworkMode(t *testing.T) {
+	cfg := DefaultResultClientConfig()
+
+	client := &ResultClient{
+		config:       cfg,
+		nodeName:     "test-node",
+		nodeZone:     "test-zone",
+		agentVersion: "v1.0",
+		networkMode:  pb.NetworkMode_NETWORK_MODE_POD,
+	}
+
+	result := &k8swatchv1.CheckResult{
+		ResultID:  "host-mode-id",
+		Timestamp: metav1.Now(),
+		Target: k8swatchv1.TargetInfo{
+			Name:      "host-target",
+			Namespace: "default",
+			Type:      k8swatchv1.TargetTypeHTTP,
+			Labels: map[string]string{
+				"k8swatch.io/network-mode": "host",
+			},
+		},
+		Check: k8swatchv1.CheckInfo{Success: true},
+	}
+
+	req := client.buildSubmitRequest(result)
+	assert.Equal(t, pb.NetworkMode_NETWORK_MODE_HOST, req.Agent.NetworkMode)
+}
+
+func TestResolveNetworkModeFromEnv(t *testing.T) {
+	t.Setenv("K8SWATCH_NETWORK_MODE", "host")
+	assert.Equal(t, pb.NetworkMode_NETWORK_MODE_HOST, resolveNetworkModeFromEnv())
+
+	t.Setenv("K8SWATCH_NETWORK_MODE", "pod")
+	assert.Equal(t, pb.NetworkMode_NETWORK_MODE_POD, resolveNetworkModeFromEnv())
+
+	_ = os.Unsetenv("K8SWATCH_NETWORK_MODE")
+	assert.Equal(t, pb.NetworkMode_NETWORK_MODE_POD, resolveNetworkModeFromEnv())
 }
 
 func TestResultClientIsConnected(t *testing.T) {

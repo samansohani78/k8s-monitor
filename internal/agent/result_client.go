@@ -19,6 +19,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -67,6 +69,7 @@ type ResultClient struct {
 	nodeName     string
 	nodeZone     string
 	agentVersion string
+	networkMode  pb.NetworkMode
 }
 
 // NewResultClient creates a new result client
@@ -109,6 +112,7 @@ func NewResultClient(config *ResultClientConfig, nodeName, nodeZone, agentVersio
 		nodeName:     nodeName,
 		nodeZone:     nodeZone,
 		agentVersion: agentVersion,
+		networkMode:  resolveNetworkModeFromEnv(),
 	}, nil
 }
 
@@ -179,7 +183,7 @@ func (c *ResultClient) buildSubmitRequest(result *k8swatchv1.CheckResult) *pb.Su
 		Agent: &pb.AgentInfo{
 			NodeName:     c.nodeName,
 			NodeZone:     c.nodeZone,
-			NetworkMode:  pb.NetworkMode_NETWORK_MODE_POD, // TODO: Support host network mode
+			NetworkMode:  c.resolveNetworkModeFromResult(result),
 			AgentVersion: c.agentVersion,
 		},
 		Target: &pb.TargetInfo{
@@ -214,6 +218,26 @@ func (c *ResultClient) buildSubmitRequest(result *k8swatchv1.CheckResult) *pb.Su
 	}
 
 	return req
+}
+
+func resolveNetworkModeFromEnv() pb.NetworkMode {
+	switch strings.ToLower(os.Getenv("K8SWATCH_NETWORK_MODE")) {
+	case "host":
+		return pb.NetworkMode_NETWORK_MODE_HOST
+	default:
+		return pb.NetworkMode_NETWORK_MODE_POD
+	}
+}
+
+func (c *ResultClient) resolveNetworkModeFromResult(result *k8swatchv1.CheckResult) pb.NetworkMode {
+	if result != nil {
+		for _, key := range []string{"k8swatch.io/network-mode", "network-mode", "network_mode"} {
+			if result.Target.Labels[key] == "host" {
+				return pb.NetworkMode_NETWORK_MODE_HOST
+			}
+		}
+	}
+	return c.networkMode
 }
 
 // HealthCheck checks the health of the aggregator

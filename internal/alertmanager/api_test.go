@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,6 +29,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func newLocalTestServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping test: cannot bind local test server: %v", err)
+	}
+	server := &httptest.Server{
+		Listener: listener,
+		Config:   &http.Server{Handler: handler},
+	}
+	server.Start()
+	return server
+}
 
 // TestAPICreation tests API server creation
 func TestAPICreation(t *testing.T) {
@@ -538,7 +554,7 @@ func TestAPI_StartStop(t *testing.T) {
 	require.NotNil(t, api)
 
 	// Start server
-	server := httptest.NewServer(api)
+	server := newLocalTestServer(t, api)
 	defer server.Close()
 
 	// Make request to verify server is running

@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -36,6 +37,7 @@ import (
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -191,7 +193,7 @@ func NewAggregator(cfg *Config) (*AggregatorServer, error) {
 	alertEngine := aggregator.NewAlertDecisionEngine(aggregator.DefaultAlertEngineConfig())
 
 	// Create result handler
-	resultHandler := NewResultHandler(processor, correlation, alertEngine, topology)
+	resultHandler := NewResultHandler(processor, correlation, alertEngine, topology, ctrlClient)
 
 	// Create gRPC server
 	grpcServer := grpc.NewServer(
@@ -428,6 +430,7 @@ type ResultHandler struct {
 	correlation *aggregator.CorrelationEngine
 	alertEngine *aggregator.AlertDecisionEngine
 	topology    *aggregator.TopologyAnalyzer
+	ctrlClient  client.Client
 }
 
 // NewResultHandler creates a new result handler
@@ -436,12 +439,14 @@ func NewResultHandler(
 	correlation *aggregator.CorrelationEngine,
 	alertEngine *aggregator.AlertDecisionEngine,
 	topology *aggregator.TopologyAnalyzer,
+	ctrlClient client.Client,
 ) *ResultHandler {
 	return &ResultHandler{
 		processor:   processor,
 		correlation: correlation,
 		alertEngine: alertEngine,
 		topology:    topology,
+		ctrlClient:  ctrlClient,
 	}
 }
 
@@ -470,13 +475,138 @@ func (h *ResultHandler) HandleResult(ctx context.Context, result *pb.SubmitResul
 	// Handle alert state changes
 	if decision.ShouldAlert {
 		fmt.Printf("ALERT: Target %s - %s\n", targetKey, decision.Reason)
-		// TODO: Create AlertEvent CR
+		if err := h.upsertAlertEvent(ctx, result, decision, false); err != nil {
+			return fmt.Errorf("failed to create alert event: %w", err)
+		}
 	}
 
 	if decision.ShouldResolve {
 		fmt.Printf("RESOLVED: Target %s - %s\n", targetKey, decision.Reason)
-		// TODO: Update AlertEvent CR
+		if err := h.upsertAlertEvent(ctx, result, decision, true); err != nil {
+			return fmt.Errorf("failed to resolve alert event: %w", err)
+		}
 	}
 
 	return nil
+}
+
+func (h *ResultHandler) upsertAlertEvent(ctx context.Context, result *pb.SubmitResultRequest, decision aggregator.AlertDecision, resolve bool) error {
+	if h.ctrlClient == nil {
+		return fmt.Errorf("controller-runtime client is not configured")
+	}
+
+	namespace := result.Target.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+	targetName := result.Target.Name
+	targetType := k8swatchv1.TargetType(result.Target.Type)
+	targetKey := namespace + "/" + targetName
+
+	report := h.correlation.GenerateReport(targetKey, h.topology)
+	blastRadius := k8swatchv1.BlastRadiusNode
+	affectedNodes := []string{}
+	if report != nil {
+		blastRadius = k8swatchv1.BlastRadiusType(report.BlastRadius)
+		affectedNodes = report.AffectedNodes
+	}
+
+	severity := h.alertEngine.CalculateSeverity(
+		result.Check.FailureLayer,
+		aggregator.BlastRadiusType(blastRadius),
+		"",
+	)
+
+	if resolve {
+		return h.resolveLatestAlertEvent(ctx, namespace, targetName)
+	}
+
+	now := metav1.Now()
+	event := &k8swatchv1.AlertEvent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("alert-%s-%d", sanitizeName(targetName), now.UnixNano()),
+			Namespace: namespace,
+			Labels: map[string]string{
+				"k8swatch.io/target-name":      targetName,
+				"k8swatch.io/target-namespace": namespace,
+				"k8swatch.io/target-key":       sanitizeName(targetKey),
+			},
+		},
+		Spec: k8swatchv1.AlertEventSpec{
+			AlertID:       fmt.Sprintf("%s-%d", sanitizeName(targetKey), now.UnixNano()),
+			Rule:          "default",
+			Target:        k8swatchv1.TargetRef{Name: targetName, Namespace: namespace, Type: targetType},
+			Severity:      string(severity),
+			Status:        "firing",
+			FiredAt:       now,
+			FailureLayer:  result.Check.FailureLayer,
+			FailureCode:   result.Check.FailureCode,
+			BlastRadius:   blastRadius,
+			AffectedNodes: affectedNodes,
+			Evidence: k8swatchv1.AlertEvidence{
+				ConsecutiveFailures: 1,
+				AffectedNodeCount:   int32(len(affectedNodes)),
+			},
+			Annotations: map[string]string{
+				"reason": decision.Reason,
+			},
+		},
+	}
+
+	if err := h.ctrlClient.Create(ctx, event); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *ResultHandler) resolveLatestAlertEvent(ctx context.Context, namespace, targetName string) error {
+	alertEvents := &k8swatchv1.AlertEventList{}
+	if err := h.ctrlClient.List(
+		ctx,
+		alertEvents,
+		client.InNamespace(namespace),
+		client.MatchingLabels{"k8swatch.io/target-name": targetName},
+	); err != nil {
+		return err
+	}
+
+	if len(alertEvents.Items) == 0 {
+		return nil
+	}
+
+	latest := &alertEvents.Items[0]
+	for i := range alertEvents.Items {
+		if alertEvents.Items[i].CreationTimestamp.After(latest.CreationTimestamp.Time) {
+			latest = &alertEvents.Items[i]
+		}
+	}
+
+	if latest.Spec.Status == "resolved" {
+		return nil
+	}
+
+	resolvedAt := metav1.Now()
+	latest.Spec.Status = "resolved"
+	latest.Spec.ResolvedAt = &resolvedAt
+	if latest.Annotations == nil {
+		latest.Annotations = map[string]string{}
+	}
+	latest.Annotations["resolved-by"] = "aggregator"
+
+	if err := h.ctrlClient.Update(ctx, latest); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	return nil
+}
+
+func sanitizeName(s string) string {
+	lower := strings.ToLower(s)
+	lower = strings.ReplaceAll(lower, "/", "-")
+	lower = strings.ReplaceAll(lower, "_", "-")
+	return lower
 }
