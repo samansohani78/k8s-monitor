@@ -1,0 +1,36 @@
+apiVersion: k8swatch.io/v1
+kind: Target
+metadata:
+  name: example-internal-canary
+  namespace: k8swatch
+  labels:
+    team: platform
+    environment: production
+spec:
+  type: internal-canary
+  endpoint:
+    k8sService:
+      name: canary
+      namespace: k8swatch
+      port: "80"
+    path: /health
+  networkModes:
+    - pod
+    - host
+  layers:
+    L0_nodeSanity:
+      enabled: true
+    L1_dns:
+      enabled: true
+    L2_tcp:
+      enabled: true
+    L4_protocol:
+      enabled: true
+      method: GET
+  schedule:
+    interval: 30s
+    timeout: 10s
+  alerting:
+    criticalityOverride: P2
+  tags:
+    category: synthetic

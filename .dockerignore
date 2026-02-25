@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Kubernetes manifests generated from Go
+config/crd/bases/*.yaml
+
+# Build output
+bin/
+dist/
+coverage.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local kind cluster
+.kind/
+
+# Go workspace
+go.work
+
+# Test
+tests/
+
+# Documentation
+docs/
+*.md
+!README.md

@@ -1,0 +1,36 @@
+apiVersion: k8swatch.io/v1
+kind: Target
+metadata:
+  name: example-external-http
+  namespace: k8swatch
+  labels:
+    team: platform
+    environment: external
+spec:
+  type: external-http
+  endpoint:
+    dns: api.github.com
+    port: 443
+    path: /
+  networkModes:
+    - pod
+  layers:
+    L1_dns:
+      enabled: true
+    L2_tcp:
+      enabled: true
+      timeout: 10s
+    L3_tls:
+      enabled: true
+      validationMode: strict
+    L4_protocol:
+      enabled: true
+      method: GET
+      timeout: 15s
+  schedule:
+    interval: 120s
+    timeout: 20s
+  alerting:
+    criticalityOverride: P2
+  tags:
+    category: external

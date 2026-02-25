@@ -1,0 +1,69 @@
+---
+# Prometheus ServiceMonitor for K8sWatch Agent
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k8swatch-agent
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch
+      app.kubernetes.io/component: agent
+  namespaceSelector:
+    matchNames:
+      - k8swatch
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+---
+# Prometheus ServiceMonitor for K8sWatch Aggregator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k8swatch-aggregator
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: aggregator
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch
+      app.kubernetes.io/component: aggregator
+  namespaceSelector:
+    matchNames:
+      - k8swatch
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+---
+# Prometheus ServiceMonitor for K8sWatch AlertManager
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k8swatch-alertmanager
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch
+      app.kubernetes.io/component: alertmanager
+  namespaceSelector:
+    matchNames:
+      - k8swatch
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

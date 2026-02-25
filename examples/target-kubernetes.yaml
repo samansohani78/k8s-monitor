@@ -1,0 +1,39 @@
+apiVersion: k8swatch.io/v1
+kind: Target
+metadata:
+  name: example-kubernetes
+  namespace: k8swatch
+  labels:
+    team: platform
+    environment: production
+spec:
+  type: kubernetes
+  endpoint:
+    k8sService:
+      name: kubernetes
+      namespace: default
+      port: "443"
+  networkModes:
+    - pod
+  layers:
+    L0_nodeSanity:
+      enabled: true
+    L1_dns:
+      enabled: true
+    L2_tcp:
+      enabled: true
+      timeout: 5s
+    L3_tls:
+      enabled: true
+      validationMode: strict
+    L4_protocol:
+      enabled: true
+      method: GET
+      timeout: 10s
+  schedule:
+    interval: 30s
+    timeout: 10s
+  alerting:
+    criticalityOverride: P0
+  tags:
+    category: kubernetes

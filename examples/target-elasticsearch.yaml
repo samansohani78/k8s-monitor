@@ -1,0 +1,36 @@
+apiVersion: k8swatch.io/v1
+kind: Target
+metadata:
+  name: example-elasticsearch
+  namespace: k8swatch
+  labels:
+    team: search
+    environment: production
+spec:
+  type: elasticsearch
+  endpoint:
+    k8sService:
+      name: elasticsearch
+      namespace: search
+      port: "9200"
+  networkModes:
+    - pod
+  layers:
+    L0_nodeSanity:
+      enabled: true
+    L1_dns:
+      enabled: true
+    L2_tcp:
+      enabled: true
+      timeout: 5s
+    L4_protocol:
+      enabled: true
+      method: GET
+      timeout: 10s
+  schedule:
+    interval: 60s
+    timeout: 15s
+  alerting:
+    criticalityOverride: P1
+  tags:
+    category: search

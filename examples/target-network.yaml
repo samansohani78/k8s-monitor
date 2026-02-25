@@ -1,0 +1,31 @@
+apiVersion: k8swatch.io/v1
+kind: Target
+metadata:
+  name: example-network
+  namespace: k8swatch
+  labels:
+    team: platform
+    environment: production
+spec:
+  type: network
+  endpoint:
+    dns: google.com
+    port: 443
+  networkModes:
+    - pod
+    - host
+  layers:
+    L0_nodeSanity:
+      enabled: true
+    L1_dns:
+      enabled: true
+    L2_tcp:
+      enabled: true
+      timeout: 5s
+  schedule:
+    interval: 30s
+    timeout: 10s
+  alerting:
+    criticalityOverride: P2
+  tags:
+    category: connectivity

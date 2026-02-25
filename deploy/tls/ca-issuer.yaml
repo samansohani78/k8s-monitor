@@ -1,0 +1,125 @@
+---
+# K8sWatch Certificate Authority Issuer
+# This creates a self-signed CA for K8sWatch internal mTLS
+# Requires: cert-manager installed in cluster
+
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: k8swatch-ca-issuer
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: tls
+spec:
+  ca:
+    secretName: k8swatch-ca-cert
+
+---
+# CA Certificate Secret (will be populated by cert-manager)
+# This is referenced by the ClusterIssuer
+apiVersion: v1
+kind: Secret
+metadata:
+  name: k8swatch-ca-cert
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: tls
+
+---
+# Aggregator Server Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: k8swatch-aggregator-cert
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: aggregator
+spec:
+  secretName: k8swatch-aggregator-tls
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # 30 days before expiry
+  subject:
+    organizations:
+      - k8swatch
+  commonName: k8swatch-aggregator.k8swatch.svc.cluster.local
+  isCA: false
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - k8swatch-aggregator.k8swatch.svc.cluster.local
+    - k8swatch-aggregator.k8swatch.svc
+    - k8swatch-aggregator
+  issuerRef:
+    name: k8swatch-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+
+---
+# Agent Client Certificate (template - one per agent pod)
+# Note: In practice, use a CertificateRequest or automate with cert-manager
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: k8swatch-agent-cert
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: agent
+spec:
+  secretName: k8swatch-agent-tls
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # 30 days before expiry
+  subject:
+    organizations:
+      - k8swatch
+  commonName: k8swatch-agent
+  isCA: false
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+    - client auth
+  issuerRef:
+    name: k8swatch-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+
+---
+# AlertManager Server Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: k8swatch-alertmanager-cert
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+spec:
+  secretName: k8swatch-alertmanager-tls
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # 30 days before expiry
+  subject:
+    organizations:
+      - k8swatch
+  commonName: k8swatch-alertmanager.k8swatch.svc.cluster.local
+  isCA: false
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - k8swatch-alertmanager.k8swatch.svc.cluster.local
+    - k8swatch-alertmanager.k8swatch.svc
+    - k8swatch-alertmanager
+  issuerRef:
+    name: k8swatch-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

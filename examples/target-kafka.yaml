@@ -1,0 +1,32 @@
+apiVersion: k8swatch.io/v1
+kind: Target
+metadata:
+  name: example-kafka
+  namespace: k8swatch
+  labels:
+    team: messaging
+    environment: production
+spec:
+  type: kafka
+  endpoint:
+    k8sService:
+      name: kafka-bootstrap
+      namespace: messaging
+      port: "9092"
+  networkModes:
+    - pod
+  layers:
+    L0_nodeSanity:
+      enabled: true
+    L1_dns:
+      enabled: true
+    L2_tcp:
+      enabled: true
+      timeout: 5s
+  schedule:
+    interval: 30s
+    timeout: 10s
+  alerting:
+    criticalityOverride: P1
+  tags:
+    category: messaging

@@ -1,0 +1,195 @@
+syntax = "proto3";
+
+package k8swatch.v1;
+
+option go_package = "github.com/k8swatch/k8s-monitor/internal/pb";
+
+import "google/protobuf/timestamp.proto";
+
+// ResultService is used by agents to submit check results to the aggregator
+service ResultService {
+  // SubmitResult submits a single check result
+  rpc SubmitResult(SubmitResultRequest) returns (SubmitResultResponse);
+  
+  // SubmitResults submits a stream of check results (batching)
+  rpc SubmitResults(stream SubmitResultRequest) returns (SubmitResultResponse);
+  
+  // HealthCheck returns the health status of the aggregator
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// SubmitResultRequest contains a check result submitted by an agent
+message SubmitResultRequest {
+  // ResultID is a unique identifier for this result
+  string result_id = 1;
+  
+  // Timestamp is when the check was completed
+  google.protobuf.Timestamp timestamp = 2;
+  
+  // Agent contains information about the agent that executed the check
+  AgentInfo agent = 3;
+  
+  // Target contains information about the target that was checked
+  TargetInfo target = 4;
+  
+  // Check contains the check execution details
+  CheckInfo check = 5;
+  
+  // Latencies contains per-layer latency measurements
+  map<string, LayerLatency> latencies = 6;
+  
+  // Metadata contains additional check metadata
+  CheckMetadata metadata = 7;
+}
+
+// SubmitResultResponse is the response to a SubmitResultRequest
+message SubmitResultResponse {
+  // Accepted indicates if the result was accepted
+  bool accepted = 1;
+  
+  // Error contains an error message if the result was rejected
+  string error = 2;
+}
+
+// AgentInfo contains information about the agent that executed a check
+message AgentInfo {
+  // NodeName is the name of the node where the agent is running
+  string node_name = 1;
+  
+  // NodeZone is the availability zone of the node
+  string node_zone = 2;
+  
+  // NetworkMode is the network perspective used for the check
+  string network_mode = 3;
+  
+  // AgentVersion is the version of the agent
+  string agent_version = 4;
+  
+  // PodName is the name of the agent pod
+  string pod_name = 5;
+}
+
+// TargetInfo contains information about the target that was checked
+message TargetInfo {
+  // Name is the target name
+  string name = 1;
+  
+  // Namespace is the target namespace
+  string namespace = 2;
+  
+  // Type is the target type
+  string type = 3;
+  
+  // Endpoint is the target endpoint that was checked
+  string endpoint = 4;
+  
+  // Labels are the target labels
+  map<string, string> labels = 5;
+}
+
+// CheckInfo contains the check execution details
+message CheckInfo {
+  // LayersEnabled is the list of layers that were enabled for this check
+  repeated string layers_enabled = 1;
+  
+  // FinalLayer is the final layer that was executed
+  string final_layer = 2;
+  
+  // Success indicates if the check was successful
+  bool success = 3;
+  
+  // FailureLayer is the layer where failure occurred (if any)
+  string failure_layer = 4;
+  
+  // FailureCode is the specific failure code
+  string failure_code = 5;
+  
+  // FailureMessage is a human-readable failure message
+  string failure_message = 6;
+}
+
+// LayerLatency contains latency measurements for a layer
+message LayerLatency {
+  // DurationMs is the layer duration in milliseconds
+  int64 duration_ms = 1;
+  
+  // Success indicates if the layer completed successfully
+  bool success = 2;
+}
+
+// CheckMetadata contains additional check metadata
+message CheckMetadata {
+  // CheckDurationMs is the total check duration in milliseconds
+  int64 check_duration_ms = 1;
+  
+  // AttemptNumber is the retry attempt number (1-based)
+  int32 attempt_number = 2;
+  
+  // ConfigVersion is the configuration version used for this check
+  string config_version = 3;
+  
+  // Error is an error message if the check failed to complete
+  string error = 4;
+}
+
+// HealthCheckRequest is a request to check the health of the aggregator
+message HealthCheckRequest {
+  // Empty for now
+}
+
+// HealthCheckResponse is the response to a HealthCheckRequest
+message HealthCheckResponse {
+  // Status is the health status
+  string status = 1;
+  
+  // Version is the aggregator version
+  string version = 2;
+  
+  // UptimeSeconds is the aggregator uptime in seconds
+  int64 uptime_seconds = 3;
+  
+  // ResultsProcessed is the total number of results processed
+  int64 results_processed = 4;
+}
+
+// NetworkMode represents the network perspective for checks
+enum NetworkMode {
+  NETWORK_MODE_UNSPECIFIED = 0;
+  NETWORK_MODE_POD = 1;
+  NETWORK_MODE_HOST = 2;
+}
+
+// TargetType represents the type of target being monitored
+enum TargetType {
+  TARGET_TYPE_UNSPECIFIED = 0;
+  TARGET_TYPE_NETWORK = 1;
+  TARGET_TYPE_DNS = 2;
+  TARGET_TYPE_HTTP = 3;
+  TARGET_TYPE_HTTPS = 4;
+  TARGET_TYPE_KUBERNETES = 5;
+  TARGET_TYPE_REDIS = 6;
+  TARGET_TYPE_POSTGRESQL = 7;
+  TARGET_TYPE_MYSQL = 8;
+  TARGET_TYPE_MSSQL = 9;
+  TARGET_TYPE_MONGODB = 10;
+  TARGET_TYPE_CLICKHOUSE = 11;
+  TARGET_TYPE_ELASTICSEARCH = 12;
+  TARGET_TYPE_OPENSEARCH = 13;
+  TARGET_TYPE_MINIO = 14;
+  TARGET_TYPE_KAFKA = 15;
+  TARGET_TYPE_RABBITMQ = 16;
+  TARGET_TYPE_KEYCLOAK = 17;
+  TARGET_TYPE_NGINX = 18;
+  TARGET_TYPE_INTERNAL_CANARY = 19;
+  TARGET_TYPE_EXTERNAL_HTTP = 20;
+  TARGET_TYPE_NODE_EGRESS = 21;
+  TARGET_TYPE_NODE_TO_NODE = 22;
+}
+
+// BlastRadiusType represents the scope of a failure
+enum BlastRadiusType {
+  BLAST_RADIUS_TYPE_UNSPECIFIED = 0;
+  BLAST_RADIUS_TYPE_NODE = 1;
+  BLAST_RADIUS_TYPE_ZONE = 2;
+  BLAST_RADIUS_TYPE_CLUSTER = 3;
+}

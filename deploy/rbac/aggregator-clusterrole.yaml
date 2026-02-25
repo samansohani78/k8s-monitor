@@ -1,0 +1,63 @@
+---
+# K8sWatch Aggregator ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8swatch-aggregator
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: aggregator
+---
+# K8sWatch Aggregator ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8swatch-aggregator
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: aggregator
+rules:
+  # Read Target and AlertRule CRDs
+  - apiGroups: ["k8swatch.io"]
+    resources: ["targets", "alertrules"]
+    verbs: ["get", "list", "watch"]
+  # Read and write AlertEvent CRDs (for alert state tracking)
+  - apiGroups: ["k8swatch.io"]
+    resources: ["alertevents"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # Read nodes for topology information
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  # Read ConfigMaps for configuration
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+    resourceNames: ["k8swatch-config"]
+  # Read secrets for TLS certificates and target credentials
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+    resourceNames: ["k8swatch-tls-ca", "k8swatch-aggregator-tls"]
+  # Send events (for Kubernetes event integration)
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+# K8sWatch Aggregator ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8swatch-aggregator
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: aggregator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8swatch-aggregator
+subjects:
+  - kind: ServiceAccount
+    name: k8swatch-aggregator
+    namespace: k8swatch

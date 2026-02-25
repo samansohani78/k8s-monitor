@@ -1,0 +1,40 @@
+apiVersion: k8swatch.io/v1
+kind: Target
+metadata:
+  name: example-keycloak
+  namespace: k8swatch
+  labels:
+    team: identity
+    environment: production
+spec:
+  type: keycloak
+  endpoint:
+    k8sService:
+      name: keycloak
+      namespace: identity
+      port: "443"
+  networkModes:
+    - pod
+  layers:
+    L0_nodeSanity:
+      enabled: true
+    L1_dns:
+      enabled: true
+    L2_tcp:
+      enabled: true
+      timeout: 5s
+    L3_tls:
+      enabled: true
+      validationMode: strict
+    L4_protocol:
+      enabled: true
+      method: GET
+      path: /.well-known/openid-configuration
+      timeout: 10s
+  schedule:
+    interval: 60s
+    timeout: 15s
+  alerting:
+    criticalityOverride: P0
+  tags:
+    category: identity

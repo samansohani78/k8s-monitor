@@ -1,0 +1,44 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Generated files
+internal/pb/*.pb.go
+api/v1/zz_generated.*.go
+
+# Kubernetes manifests generated from Go
+config/crd/bases/*.yaml
+
+# Local kind cluster config
+.kind/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

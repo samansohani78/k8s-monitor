@@ -1,0 +1,39 @@
+apiVersion: k8swatch.io/v1
+kind: Target
+metadata:
+  name: example-https
+  namespace: k8swatch
+  labels:
+    team: platform
+    environment: production
+spec:
+  type: https
+  endpoint:
+    dns: google.com
+    port: 443
+    path: /
+  networkModes:
+    - pod
+  layers:
+    L0_nodeSanity:
+      enabled: true
+    L1_dns:
+      enabled: true
+    L2_tcp:
+      enabled: true
+      timeout: 5s
+    L3_tls:
+      enabled: true
+      validationMode: strict
+      timeout: 5s
+    L4_protocol:
+      enabled: true
+      method: GET
+      timeout: 10s
+  schedule:
+    interval: 60s
+    timeout: 15s
+  alerting:
+    criticalityOverride: P2
+  tags:
+    category: https

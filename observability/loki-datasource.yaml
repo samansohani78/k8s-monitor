@@ -1,0 +1,72 @@
+---
+# Loki Datasource ConfigMap for Grafana
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8swatch-loki-datasource
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: logging
+    grafana_datasource: "1"
+data:
+  loki-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.observability.svc.cluster.local:3100
+      jsonData:
+        maxLines: 1000
+        derivedFields:
+        - datasourceUid: prometheus
+          matcherRegex: "correlationID=(\\w+-\\w+-\\w+-\\w+-\\w+)"
+          name: CorrelationID
+          url: $${__value.raw}
+        - datasourceUid: prometheus
+          matcherRegex: "target=(\\S+)"
+          name: Target
+          url: '/d/k8swatch-target-deep-dive?var-target=${__value.raw}'
+        - datasourceUid: prometheus
+          matcherRegex: "node=(\\S+)"
+          name: Node
+          url: '/d/k8swatch-node-health?var-node=${__value.raw}'
+      editable: true
+      isDefault: false
+
+---
+# Prometheus Datasource ConfigMap for Grafana
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8swatch-prometheus-datasource
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: monitoring
+    grafana_datasource: "1"
+data:
+  prometheus-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus-server.observability.svc.cluster.local
+      jsonData:
+        timeInterval: "15s"
+        queryTimeout: "60s"
+        httpMethod: "POST"
+      editable: true
+      isDefault: true
+
+---
+# Note: For Grafana dashboards, use the following command to import:
+# kubectl create configmap k8swatch-grafana-dashboards \
+#   --from-file=dashboards/cluster-health.json \
+#   --from-file=dashboards/target-deep-dive.json \
+#   --from-file=dashboards/node-health.json \
+#   --from-file=dashboards/alerting-metrics.json \
+#   -n k8swatch \
+#   -l grafana_dashboard=1

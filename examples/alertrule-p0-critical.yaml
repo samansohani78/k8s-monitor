@@ -1,0 +1,43 @@
+apiVersion: k8swatch.io/v1
+kind: AlertRule
+metadata:
+  name: p0-critical-alert
+  namespace: k8swatch
+  labels:
+    severity: critical
+    team: platform
+spec:
+  targetSelector:
+    criticality: P0
+  trigger:
+    consecutiveFailures: 2
+    blastRadius:
+      - node
+      - zone
+      - cluster
+    timeWindow: 2m
+  severity:
+    base: critical
+    overrides:
+      - condition: blastRadius == "cluster"
+        severity: critical
+  recovery:
+    consecutiveSuccesses: 2
+    sustainedPeriod: 60s
+    autoResolve: true
+  stormPrevention:
+    groupBy:
+      - namespace
+      - failureLayer
+      - blastRadius
+    maxAlertsPerGroup: 1
+    cooldownPeriod: 5m
+    suppressionWindow: 15m
+    parentChildRules:
+      - parent: "cluster.*"
+        child: "zone.*"
+      - parent: "zone.*"
+        child: "node.*"
+  notificationChannels:
+    - pagerduty-critical
+    - slack-critical

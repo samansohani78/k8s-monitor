@@ -1,0 +1,28 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: k8swatch-aggregator
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch-aggregator
+    app.kubernetes.io/component: aggregator
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch-aggregator
+      app.kubernetes.io/component: aggregator
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: k8swatch-redis
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch-redis
+    app.kubernetes.io/component: state-store
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch-redis

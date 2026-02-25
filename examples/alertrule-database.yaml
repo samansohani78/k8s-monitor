@@ -1,0 +1,46 @@
+apiVersion: k8swatch.io/v1
+kind: AlertRule
+metadata:
+  name: database-alerts
+  namespace: k8swatch
+  labels:
+    category: database
+    team: dba
+spec:
+  targetSelector:
+    category: database
+    labels:
+      environment: production
+  trigger:
+    consecutiveFailures: 2
+    blastRadius:
+      - node
+      - zone
+      - cluster
+    timeWindow: 3m
+    failureLayers:
+      - L4
+      - L5
+      - L6
+  severity:
+    base: critical
+    overrides:
+      - condition: failureLayer == "L5"
+        severity: critical
+      - condition: failureLayer == "L4"
+        severity: warning
+  recovery:
+    consecutiveSuccesses: 3
+    sustainedPeriod: 120s
+    autoResolve: true
+  stormPrevention:
+    groupBy:
+      - namespace
+      - target
+    maxAlertsPerGroup: 1
+    cooldownPeriod: 5m
+    suppressionWindow: 15m
+  notificationChannels:
+    - pagerduty-database
+    - slack-database
+    - email-dba

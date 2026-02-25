@@ -1,0 +1,248 @@
+---
+# K8sWatch AlertManager ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8swatch-alertmanager
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+---
+# K8sWatch AlertManager ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8swatch-alertmanager
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+rules:
+  # Read AlertRule CRDs
+  - apiGroups: ["k8swatch.io"]
+    resources: ["alertrules"]
+    verbs: ["get", "list", "watch"]
+  # Read and write AlertEvent CRDs
+  - apiGroups: ["k8swatch.io"]
+    resources: ["alertevents"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # Read Target CRDs for context
+  - apiGroups: ["k8swatch.io"]
+    resources: ["targets"]
+    verbs: ["get", "list", "watch"]
+  # Read nodes for topology information
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  # Read secrets for notification credentials
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: ["k8swatch-notification-config"]
+  # Send events (for Kubernetes event integration)
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+# K8sWatch AlertManager ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8swatch-alertmanager
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8swatch-alertmanager
+subjects:
+  - kind: ServiceAccount
+    name: k8swatch-alertmanager
+    namespace: k8swatch
+---
+# K8sWatch AlertManager Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8swatch-alertmanager
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch
+      app.kubernetes.io/component: alertmanager
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k8swatch
+        app.kubernetes.io/component: alertmanager
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: k8swatch-alertmanager
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: k8swatch
+                  app.kubernetes.io/component: alertmanager
+              topologyKey: topology.kubernetes.io/zone
+      containers:
+        - name: alertmanager
+          image: k8swatch/alertmanager:0.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --http-address=:8080
+            - --aggregator-address=k8swatch-aggregator.k8swatch.svc:50051
+            - --verbose=false
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: config
+              mountPath: /etc/k8swatch
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: k8swatch-alertmanager-config
+            optional: true
+---
+# K8sWatch AlertManager Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8swatch-alertmanager
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+  type: ClusterIP
+---
+# K8sWatch AlertManager PodDisruptionBudget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: k8swatch-alertmanager
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch
+      app.kubernetes.io/component: alertmanager
+---
+# K8sWatch AlertManager ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8swatch-alertmanager-config
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+data:
+  config.yaml: |
+    # AlertManager configuration
+    # Notification channels configuration
+    channels:
+      # Slack webhook (example)
+      - name: slack
+        type: slack
+        config:
+          webhookURL: ""  # Set via secret
+          channel: "#alerts"
+      
+      # PagerDuty (example)
+      - name: pagerduty
+        type: pagerduty
+        config:
+          routingKey: ""  # Set via secret
+      
+      # Email (example)
+      - name: email
+        type: email
+        config:
+          smtpHost: ""
+          smtpPort: 587
+          from: "k8swatch@example.com"
+          to: ["oncall@example.com"]
+    
+    # Default notification routing
+    routes:
+      - match:
+          severity: critical
+        channels:
+          - pagerduty
+          - slack
+        repeatInterval: 5m
+      
+      - match:
+          severity: warning
+        channels:
+          - slack
+        repeatInterval: 15m
+      
+      - match:
+          severity: info
+        channels:
+          - slack
+        repeatInterval: 1h

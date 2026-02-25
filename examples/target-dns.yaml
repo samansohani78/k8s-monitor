@@ -1,0 +1,26 @@
+apiVersion: k8swatch.io/v1
+kind: Target
+metadata:
+  name: example-dns
+  namespace: k8swatch
+  labels:
+    team: platform
+    environment: production
+spec:
+  type: dns
+  endpoint:
+    dns: kubernetes.default.svc.cluster.local
+  networkModes:
+    - pod
+  layers:
+    L0_nodeSanity:
+      enabled: true
+    L1_dns:
+      enabled: true
+  schedule:
+    interval: 30s
+    timeout: 5s
+  alerting:
+    criticalityOverride: P1
+  tags:
+    category: dns

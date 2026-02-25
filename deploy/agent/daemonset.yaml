@@ -1,0 +1,237 @@
+---
+# K8sWatch Agent ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8swatch-agent
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: agent
+---
+# K8sWatch Agent ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8swatch-agent
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: agent
+rules:
+  # Read ConfigMaps for configuration
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+    resourceNames: ["k8swatch-config"]
+  # Read Target CRDs
+  - apiGroups: ["k8swatch.io"]
+    resources: ["targets"]
+    verbs: ["get", "list", "watch"]
+  # Read nodes for node information
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+---
+# K8sWatch Agent ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8swatch-agent
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8swatch-agent
+subjects:
+  - kind: ServiceAccount
+    name: k8swatch-agent
+    namespace: k8swatch
+---
+# K8sWatch Agent DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: k8swatch-agent
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch
+      app.kubernetes.io/component: agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  minReadySeconds: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k8swatch
+        app.kubernetes.io/component: agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      # Run with hostNetwork for node-level network checks
+      hostNetwork: true
+      # Optional: Host PID for advanced monitoring
+      hostPID: false
+      # Service account with minimal permissions
+      serviceAccountName: k8swatch-agent
+      # Priority for scheduling
+      priorityClassName: system-node-critical
+      # Node selector (optional)
+      # nodeSelector:
+      #   kubernetes.io/os: linux
+      # Tolerations to run on all nodes including masters
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+      # Termination grace period
+      terminationGracePeriodSeconds: 45
+      # DNS policy
+      dnsPolicy: ClusterFirstWithHostNet
+      # Pre-stop hook to drain in-flight checks
+      lifecycle:
+        preStop:
+          exec:
+            command: ["/bin/sh", "-c", "sleep 15"]
+      containers:
+        - name: agent
+          image: k8swatch/agent:0.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --aggregator=k8swatch-aggregator.k8swatch.svc:50051
+            - --verbose=false
+          env:
+            # Node name (required for identification)
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Pod name (for logging)
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Pod namespace
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Agent version
+            - name: AGENT_VERSION
+              value: "0.1.0"
+          # Resource requests and limits
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          # Volume mounts
+          volumeMounts:
+            # Mount /proc for L0 node sanity checks
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            # Mount sys for additional system info
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+          # Liveness probe
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Readiness probe
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      # Volumes
+      volumes:
+        # /proc mount for L0 checks
+        - name: proc
+          hostPath:
+            path: /proc
+        # /sys mount for system info
+        - name: sys
+          hostPath:
+            path: /sys
+---
+# K8sWatch Agent PodDisruptionBudget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: k8swatch-agent
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: agent
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch
+      app.kubernetes.io/component: agent
+---
+# K8sWatch Agent ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8swatch-config
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: agent
+data:
+  # Default configuration
+  config.yaml: |
+    # Agent configuration
+    agent:
+      # Check interval
+      interval: 30s
+      # Check timeout
+      timeout: 15s
+      # Max concurrent checks
+      maxConcurrency: 10
+      # Result submission
+      aggregator:
+        address: k8swatch-aggregator.k8swatch.svc:50051
+        timeout: 10s
+        maxRetries: 3
+        retryBackoff: 1s

@@ -1,0 +1,36 @@
+apiVersion: k8swatch.io/v1
+kind: AlertRule
+metadata:
+  name: p1-warning-alert
+  namespace: k8swatch
+  labels:
+    severity: warning
+    team: platform
+spec:
+  targetSelector:
+    criticality: P1
+  trigger:
+    consecutiveFailures: 3
+    blastRadius:
+      - node
+      - zone
+    timeWindow: 5m
+  severity:
+    base: warning
+    overrides:
+      - condition: blastRadius == "zone"
+        severity: critical
+  recovery:
+    consecutiveSuccesses: 3
+    sustainedPeriod: 120s
+    autoResolve: true
+  stormPrevention:
+    groupBy:
+      - namespace
+      - failureLayer
+    maxAlertsPerGroup: 3
+    cooldownPeriod: 10m
+    suppressionWindow: 30m
+  notificationChannels:
+    - slack-warning
+    - email-oncall

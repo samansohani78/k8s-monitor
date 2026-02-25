@@ -1,0 +1,312 @@
+---
+# K8sWatch Agent NetworkPolicy
+# 
+# IMPORTANT NOTE: This NetworkPolicy may not apply to agent pods
+# because they run with hostNetwork: true. NetworkPolicies only
+# affect pod network traffic, not host network traffic.
+#
+# For hostNetwork pods, consider:
+# 1. Node-level firewalls (iptables, nftables, cloud security groups)
+# 2. CNI-specific network policies (Calico, Cilium)
+# 3. Accept the risk and rely on RBAC + mTLS for security
+#
+# Usage: kubectl apply -f agent-netpol.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k8swatch-agent
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: agent
+spec:
+  # Select all agent pods
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch
+      app.kubernetes.io/component: agent
+  
+  # Define policy types
+  policyTypes:
+  - Egress
+  
+  # Egress rules
+  egress:
+  # Allow communication to aggregator (gRPC port 50051)
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: k8swatch
+          app.kubernetes.io/component: aggregator
+    ports:
+    - protocol: TCP
+      port: 50051
+  
+  # Allow DNS resolution (required for all network communication)
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  
+  # Allow HTTPS to external targets (internet-facing APIs)
+  # Note: This is broad - consider restricting to specific CIDRs
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+  
+  # Allow communication to internal targets
+  # Note: This is intentionally broad to support all target types
+  # For production, consider more restrictive policies per target type
+  - to:
+    - ipBlock:
+        cidr: 10.0.0.0/8
+    ports:
+    - protocol: TCP
+      port: 443    # HTTPS
+    - protocol: TCP
+      port: 80     # HTTP
+    - protocol: TCP
+      port: 5432   # PostgreSQL
+    - protocol: TCP
+      port: 3306   # MySQL
+    - protocol: TCP
+      port: 1433   # MSSQL
+    - protocol: TCP
+      port: 6379   # Redis
+    - protocol: TCP
+      port: 27017  # MongoDB
+    - protocol: TCP
+      port: 9200   # Elasticsearch/OpenSearch
+    - protocol: TCP
+      port: 9000   # MinIO
+    - protocol: TCP
+      port: 8123   # ClickHouse HTTP
+    - protocol: TCP
+      port: 9000   # ClickHouse Native
+    - protocol: TCP
+      port: 9092   # Kafka
+    - protocol: TCP
+      port: 5672   # RabbitMQ AMQP
+    - protocol: TCP
+      port: 15672  # RabbitMQ Management
+  
+  # Allow communication to Kubernetes API server
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 6443  # Default Kubernetes API port
+
+---
+# K8sWatch Aggregator NetworkPolicy
+#
+# Usage: kubectl apply -f aggregator-netpol.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k8swatch-aggregator
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: aggregator
+spec:
+  # Select all aggregator pods
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch
+      app.kubernetes.io/component: aggregator
+  
+  # Define policy types
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # Ingress rules
+  ingress:
+  # Allow gRPC from agent pods
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: k8swatch
+          app.kubernetes.io/component: agent
+    ports:
+    - protocol: TCP
+      port: 50051
+  
+  # Allow HTTP from alertmanager (for health checks)
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: k8swatch
+          app.kubernetes.io/component: alertmanager
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Allow Prometheus scraping
+  - from:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: prometheus
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Egress rules
+  egress:
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  
+  # Allow communication to alertmanager
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: k8swatch
+          app.kubernetes.io/component: alertmanager
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Allow communication to Kubernetes API server
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 6443
+  
+  # Allow communication to Redis (if used for state)
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+
+---
+# K8sWatch AlertManager NetworkPolicy
+#
+# Usage: kubectl apply -f alertmanager-netpol.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k8swatch-alertmanager
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: alertmanager
+spec:
+  # Select all alertmanager pods
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: k8swatch
+      app.kubernetes.io/component: alertmanager
+  
+  # Define policy types
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # Ingress rules
+  ingress:
+  # Allow HTTP from aggregator
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: k8swatch
+          app.kubernetes.io/component: aggregator
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Allow Prometheus scraping
+  - from:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: prometheus
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Egress rules
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  
+  # Allow outbound to notification channels
+  # Slack
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443
+  
+  # PagerDuty
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443
+  
+  # SMTP (email notifications)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 587   # SMTP STARTTLS
+    - protocol: TCP
+      port: 465   # SMTPS
+  
+  # Allow communication to Kubernetes API server (for events)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 6443

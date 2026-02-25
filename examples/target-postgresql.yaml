@@ -1,0 +1,42 @@
+apiVersion: k8swatch.io/v1
+kind: Target
+metadata:
+  name: example-postgresql
+  namespace: k8swatch
+  labels:
+    team: database
+    environment: production
+spec:
+  type: postgresql
+  endpoint:
+    k8sService:
+      name: postgres
+      namespace: database
+      port: "5432"
+  networkModes:
+    - pod
+  layers:
+    L0_nodeSanity:
+      enabled: true
+    L1_dns:
+      enabled: true
+    L2_tcp:
+      enabled: true
+      timeout: 5s
+    L4_protocol:
+      enabled: true
+      timeout: 10s
+    L5_auth:
+      enabled: true
+      credentialsRef:
+        secretName: postgres-healthcheck
+        secretNamespace: database
+    L6_semantic:
+      enabled: true
+  schedule:
+    interval: 30s
+    timeout: 10s
+  alerting:
+    criticalityOverride: P1
+  tags:
+    category: database

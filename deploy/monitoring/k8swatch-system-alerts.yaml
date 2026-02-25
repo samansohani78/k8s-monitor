@@ -1,0 +1,234 @@
+---
+# K8sWatch System Monitoring - PrometheusRule CRs
+# These alerts monitor the health of K8sWatch itself
+# Usage: kubectl apply -f k8swatch-system-alerts.yaml
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: k8swatch-system-alerts
+  namespace: k8swatch
+  labels:
+    app.kubernetes.io/name: k8swatch
+    app.kubernetes.io/component: monitoring
+    prometheus: k8s
+    role: alert-rules
+spec:
+  groups:
+  # Agent Health Alerts
+  - name: k8swatch.agent.rules
+    interval: 30s
+    rules:
+    # Alert: Agent DaemonSet not healthy
+    - alert: K8sWatchAgentDaemonSetNotHealthy
+      expr: |
+        kube_daemonset_status_number_ready{daemonset="k8swatch-agent", namespace="k8swatch"}
+        <
+        kube_daemonset_status_desired_number_scheduled{daemonset="k8swatch-agent", namespace="k8swatch"}
+      for: 5m
+      labels:
+        severity: warning
+        component: agent
+      annotations:
+        summary: "K8sWatch Agent DaemonSet not fully healthy"
+        description: "Only {{ $value }} agents ready out of {{ $value | humanize }} desired"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/agent-troubleshooting.md"
+
+    # Alert: Agent not submitting results
+    - alert: K8sWatchAgentNotSubmittingResults
+      expr: |
+        sum(rate(k8swatch_agent_check_total{namespace="k8swatch"}[5m])) by (node) < 0.5
+      for: 5m
+      labels:
+        severity: warning
+        component: agent
+      annotations:
+        summary: "K8sWatch Agent on node {{ $labels.node }} not submitting results"
+        description: "Agent is checking less than 0.5 times per second (currently {{ $value }})"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/agent-troubleshooting.md"
+
+    # Alert: High result drop rate
+    - alert: K8sWatchAgentHighResultDropRate
+      expr: |
+        sum(rate(k8swatch_agent_results_dropped_total{namespace="k8swatch"}[5m])) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        component: agent
+      annotations:
+        summary: "K8sWatch Agent dropping results"
+        description: "{{ $value }} results dropped per second"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/agent-troubleshooting.md"
+
+    # Alert: Agent check latency high
+    - alert: K8sWatchAgentCheckLatencyHigh
+      expr: |
+        histogram_quantile(0.99, sum(rate(k8swatch_agent_check_duration_seconds_bucket{namespace="k8swatch"}[5m])) by (le)) > 10
+      for: 5m
+      labels:
+        severity: warning
+        component: agent
+      annotations:
+        summary: "K8sWatch Agent check latency high"
+        description: "P99 check latency is {{ $value }}s (threshold: 10s)"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/agent-troubleshooting.md"
+
+  # Aggregator Health Alerts
+  - name: k8swatch.aggregator.rules
+    interval: 30s
+    rules:
+    # Alert: Aggregator not receiving results
+    - alert: K8sWatchAggregatorNotReceivingResults
+      expr: |
+        sum(rate(k8swatch_aggregator_results_received_total{namespace="k8swatch"}[5m])) < 1
+      for: 5m
+      labels:
+        severity: critical
+        component: aggregator
+      annotations:
+        summary: "K8sWatch Aggregator not receiving results"
+        description: "Received {{ $value }} results per second (expected > 1)"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/aggregator-issues.md"
+
+    # Alert: High result rejection rate
+    - alert: K8sWatchAggregatorHighRejectionRate
+      expr: |
+        sum(rate(k8swatch_aggregator_results_invalid_total{namespace="k8swatch"}[5m])) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        component: aggregator
+      annotations:
+        summary: "K8sWatch Aggregator rejecting results"
+        description: "{{ $value }} results rejected per second"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/aggregator-issues.md"
+
+    # Alert: Aggregator pod not ready
+    - alert: K8sWatchAggregatorPodNotReady
+      expr: |
+        sum(kube_pod_status_ready{pod=~"k8swatch-aggregator-.*", namespace="k8swatch", condition="true"}) < 2
+      for: 5m
+      labels:
+        severity: critical
+        component: aggregator
+      annotations:
+        summary: "K8sWatch Aggregator has fewer than 2 ready pods"
+        description: "Only {{ $value }} aggregator pods ready"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/aggregator-issues.md"
+
+    # Alert: Redis connection failures
+    - alert: K8sWatchAggregatorRedisConnectionFailures
+      expr: |
+        sum(rate(k8swatch_aggregator_redis_operations_total{namespace="k8swatch", status="error"}[5m])) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        component: aggregator
+      annotations:
+        summary: "K8sWatch Aggregator Redis connection failures"
+        description: "{{ $value }} Redis errors per second"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/aggregator-issues.md"
+
+  # Alert Manager Health Alerts
+  - name: k8swatch.alertmanager.rules
+    interval: 30s
+    rules:
+    # Alert: Alert Manager notification failures
+    - alert: K8sWatchAlertManagerNotificationFailures
+      expr: |
+        sum(rate(k8swatch_alertmanager_notifications_total{namespace="k8swatch", status="error"}[5m])) > 0
+      for: 5m
+      labels:
+        severity: warning
+        component: alertmanager
+      annotations:
+        summary: "K8sWatch Alert Manager notification failures"
+        description: "{{ $value }} notification failures per second"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/alertmanager-issues.md"
+
+    # Alert: Alert Manager not processing alerts
+    - alert: K8sWatchAlertManagerNotProcessingAlerts
+      expr: |
+        sum(k8swatch_alertmanager_alerts_active{namespace="k8swatch"}) > 10 and
+        sum(rate(k8swatch_alertmanager_alerts_fired_total{namespace="k8swatch"}[5m])) == 0
+      for: 10m
+      labels:
+        severity: warning
+        component: alertmanager
+      annotations:
+        summary: "K8sWatch Alert Manager not processing alerts"
+        description: "{{ $value }} active alerts but none fired in last 5 minutes"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/alertmanager-issues.md"
+
+    # Alert: Alert Manager pod not ready
+    - alert: K8sWatchAlertManagerPodNotReady
+      expr: |
+        sum(kube_pod_status_ready{pod=~"k8swatch-alertmanager-.*", namespace="k8swatch", condition="true"}) < 1
+      for: 5m
+      labels:
+        severity: critical
+        component: alertmanager
+      annotations:
+        summary: "K8sWatch Alert Manager pod not ready"
+        description: "Alert Manager pod is not ready"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/alertmanager-issues.md"
+
+  # System-Wide Alerts
+  - name: k8swatch.system.rules
+    interval: 30s
+    rules:
+    # Alert: No checks executed cluster-wide
+    - alert: K8sWatchNoChecksExecuted
+      expr: |
+        sum(rate(k8swatch_agent_check_total{namespace="k8swatch"}[10m])) == 0
+      for: 10m
+      labels:
+        severity: critical
+        component: system
+      annotations:
+        summary: "K8sWatch not executing any checks cluster-wide"
+        description: "No checks executed in the last 10 minutes"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/system-issues.md"
+
+    # Alert: High alert volume (potential storm)
+    - alert: K8sWatchHighAlertVolume
+      expr: |
+        sum(rate(k8swatch_alertmanager_alerts_fired_total{namespace="k8swatch"}[5m])) > 10
+      for: 5m
+      labels:
+        severity: warning
+        component: system
+      annotations:
+        summary: "K8sWatch high alert volume detected"
+        description: "{{ $value }} alerts fired per second (potential alert storm)"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/alert-storm.md"
+
+    # Alert: Check success rate degraded
+    - alert: K8sWatchCheckSuccessRateDegraded
+      expr: |
+        sum(rate(k8swatch_agent_check_total{namespace="k8swatch", status="success"}[5m]))
+        /
+        sum(rate(k8swatch_agent_check_total{namespace="k8swatch"}[5m])) < 0.95
+      for: 5m
+      labels:
+        severity: warning
+        component: system
+      annotations:
+        summary: "K8sWatch check success rate degraded"
+        description: "Success rate is {{ $value | humanizePercentage }} (threshold: 95%)"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/system-issues.md"
+
+    # Alert: Check success rate critical
+    - alert: K8sWatchCheckSuccessRateCritical
+      expr: |
+        sum(rate(k8swatch_agent_check_total{namespace="k8swatch", status="success"}[5m]))
+        /
+        sum(rate(k8swatch_agent_check_total{namespace="k8swatch"}[5m])) < 0.80
+      for: 5m
+      labels:
+        severity: critical
+        component: system
+      annotations:
+        summary: "K8sWatch check success rate critical"
+        description: "Success rate is {{ $value | humanizePercentage }} (threshold: 80%)"
+        runbook_url: "https://github.com/k8swatch/k8s-monitor/blob/main/docs/runbooks/system-issues.md"
